@@ -42,19 +42,7 @@ A = np.array(
 
 
 def compute_manifold_eigenvalues(monodromy_matrix):
-    """
-    Compute stable eigenvalues and eigenvectors from monodromy matrix.
     
-    Parameters
-    ----------
-    monodromy_matrix : np.ndarray
-        4x4 monodromy matrix
-    
-    Returns
-    -------
-    tuple
-        (dominant_stable_eigenvalue, stable_eigenvector)
-    """
     eigenvalues, eigenvectors = np.linalg.eig(monodromy_matrix)
     # strip small imaginary parts due to numerical errors and only keep largest negative real part
 
@@ -72,25 +60,7 @@ def compute_manifold_eigenvalues(monodromy_matrix):
 
 
 def compute_stable_manifolds(lagrange_point_index=0, perturbation_magnitude=1e-6, num_periods=15, num_points=10000):
-    """
-    Compute stable manifold trajectories for a given Lagrange point.
     
-    Parameters
-    ----------
-    lagrange_point_index : int
-        Index of Lagrange point (0=L1, 1=L2, 2=L3)
-    perturbation_magnitude : float
-        Magnitude of perturbation along eigenvector
-    num_periods : int
-        Number of periods to integrate backward in time
-    num_points : int
-        Number of evaluation points
-    
-    Returns
-    -------
-    dict
-        Contains: x_lp, state, dominant_stable_ev, positive_trajectory, negative_trajectory
-    """
     lagrange_points = lagrangePoints(partial_effective_potential)
     X_lp = lagrange_points[lagrange_point_index]
     state = [X_lp, 0, 0, 0, 0, 0]
