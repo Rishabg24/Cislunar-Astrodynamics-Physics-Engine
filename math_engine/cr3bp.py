@@ -1,12 +1,57 @@
 import numpy as np
 from scipy.integrate import solve_ivp
 import matplotlib.pyplot as plt
+from astropy.constants import M_sun, M_earth, M_jup 
 
-MU = 0.01215 # Earth-Moon system mass ratio
 
-def returnMU():
-    return MU
+def returnMU(primary: str = 'earth', secondary: str = 'moon') -> float:
+    """Return the reduced mass parameter mu = m2/(m1+m2).
 
+    primary and secondary are lowercase text names like 'earth', 'moon', 'sun',
+    'mars', 'venus', 'mercury', 'jupiter', 'saturn', 'uranus', 'neptune'.
+    """
+
+    # derived body masses (approximate where needed) using astropy constants
+    M_moon = M_earth * 0.0123
+    M_mars = M_earth * 0.107
+    M_venus = M_earth * 0.815
+    M_mercury = M_earth * 0.055
+    M_jupiter = M_jup
+    M_saturn = M_jup * 0.3
+    M_uranus = M_jup * 0.0457
+    M_neptune = M_jup * 0.0543
+
+    def name_to_mass(name: str):
+        match name.lower():
+            case 'sun':
+                return M_sun
+            case 'earth':
+                return M_earth
+            case 'moon':
+                return M_moon
+            case 'mars':
+                return M_mars
+            case 'venus':
+                return M_venus
+            case 'mercury':
+                return M_mercury
+            case 'jupiter' | 'jup':
+                return M_jupiter
+            case 'saturn':
+                return M_saturn
+            case 'uranus':
+                return M_uranus
+            case 'neptune':
+                return M_neptune
+            case _:
+                raise ValueError(f"Unknown body name: {name}")
+
+    m1 = name_to_mass(primary)
+    m2 = name_to_mass(secondary)
+
+    return m2 / (m1 + m2)
+
+MU = returnMU()
 
 def cr3bp_eom(t, state, mu):
     """
@@ -22,7 +67,7 @@ def cr3bp_eom(t, state, mu):
     ay = y - 2*vx - ((1-mu)*y / (r1**3)) - (mu * y / (r2**3))
     az = -1 * ((1-mu)*z)/(r1**3) - (mu * z)/ (r2**3)
 
-    return [vx, vy,vz, ax,ay,az]
+    return [vx, vy, vz, ax,ay,az]
 
 
 # --- Initial Conditions (a simple orbit near L1) ---

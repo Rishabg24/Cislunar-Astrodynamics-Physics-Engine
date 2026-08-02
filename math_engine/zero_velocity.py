@@ -29,7 +29,7 @@ def compute_zero_velocity_curves(initial_conditions):
 lagrange_points = lagrangePoints(partial_effective_potential)
 
 if __name__ == "__main__":
-    initial_conditions = [0.84, 0.0, 0.0, 0.0, 0.4, 0.0]  # Example state vector
+    initial_conditions = [0.23, 0.0, 0.0, 0.0, 0.4, 0.0]  # Example state vector
 
     X, Y, Z, C = compute_zero_velocity_curves(initial_conditions)
 
