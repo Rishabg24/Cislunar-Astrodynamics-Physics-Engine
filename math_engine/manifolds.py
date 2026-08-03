@@ -43,7 +43,7 @@ partial_omega_xx = lambda x, y, z, mu: (
     1
     - (1 - mu) / r1(x, y, z, mu) ** 3
     + 3 * (1 - mu) * (x + mu) ** 2 / r1(x, y, z, mu) ** 5
-    - mu / r2(x, y, z) ** 3
+    - mu / r2(x, y, z, mu) ** 3
     + 3 * mu * (x - 1 + mu) ** 2 / r2(x, y, z, mu) ** 5
 )
 
@@ -240,13 +240,13 @@ def differential_corrector(
         if method == "2D":
             if np.abs(vx_f) < tol:
                 T_converged = t_half * 2
-                print("2D Correction Converged. Integration Finished")
+                print("2D Correction Converged.")
                 return state6, T_converged
 
         elif method == "3D":
             if np.linalg.norm(G) < tol:
                 T_converged = t_half * 2
-                print("3D differential Correction Converged. Integration Finished")
+                print("3D differential Correction Converged.")
                 return state6, T_converged
         else:
             raise ValueError("Method Error")
@@ -363,9 +363,9 @@ def calc_init_conditions(mu, method="3D"):
         # symmetry-plane structure expected by differential_corrector().
         return x0, z0, vy0, T_linear
 
-
+MU = returnMU()
 def export_trajectory(state6, T, N=1000, filepath="trajectory.npz"):
-    solution = integrator((0, T), state6, events=None, dense_output=True)
+    solution = integrator((0, T), state6, events=None,mu=MU, dense_output=True)
     t_array = np.linspace(0, T, N)
     # sol(t) returns the full 42-vector; slice to the 6 physical states
     state_array = np.array([solution.sol(t)[:6] for t in t_array])
@@ -373,46 +373,102 @@ def export_trajectory(state6, T, N=1000, filepath="trajectory.npz"):
     return t_array, state_array
 
 
-MU = returnMU()
-x0, z0, vy, T_guess = calc_init_conditions(MU)
+def plot_orbit(state, method="3D", mu=None):
+    """Plot a CR3BP orbit in 2D or 3D based on the selected method."""
+    state_array = np.asarray(state)
+    if state_array.ndim != 2 or state_array.shape[1] < 2:
+        raise ValueError("state must be a 2D array with at least x and y coordinates")
 
-converged_state, T = differential_corrector(T_guess, x0=x0, z0_guess=z0, vy0_guess=vy, mu=MU, max_newton=1000, tol=1e-12)
-solution = integrator((0, T), converged_state, None, MU,)
+    x = state_array[:, 0]
+    y = state_array[:, 1]
+    z = state_array[:, 2] if state_array.shape[1] > 2 else np.zeros_like(x)
 
-# Extract Monodromy and Floquet
-final_sol_vector = solution.y[:, -1]
-STM_flat = final_sol_vector[6:]
-monodromy = STM_flat.reshape((6, 6))
+    method_key = str(method).upper()
+    if method_key == "2D":
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(x, y, lw=0.8, color="steelblue", label="Spacecraft")
+        ax.plot(-MU if mu is None else -mu, 0, "bo", markersize=10, label="Earth")
+        ax.plot(1 - MU if mu is None else 1 - mu, 0, "go", markersize=6, label="Moon")
+        ax.set_xlabel("x (non-dim)")
+        ax.set_ylabel("y (non-dim)")
+        ax.set_title("CR3BP Trajectory — Rotating Frame")
+        ax.set_aspect("equal")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        return fig, ax
 
-print("Extracting Floquet Multipliers . . .")
-floquet_multipliers, eigenvectors = eig(monodromy)
+    if method_key == "3D":
+        z_amplitude = np.max(np.abs(z))
+        if z_amplitude < 1e-8:
+            z_scale = max(1.0, np.max(np.sqrt(x**2 + y**2)))
+            z_offset = 1e-3 * z_scale
+            z = z + z_offset
+            print(
+                f"Warning: z values are near zero; applying a small visualization offset of {z_offset:.3e}."
+            )
+
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111, projection="3d")
+        ax.plot(x, y, z, lw=0.8, color="steelblue", label="Spacecraft")
+        ax.scatter(-MU if mu is None else -mu, 0, 0, color="blue", marker="o", s=100, label="Earth")
+        ax.scatter(1 - MU if mu is None else 1 - mu, 0, 0, color="green", marker="o", s=70, label="Moon")
+        ax.set_xlabel("x (non-dim)")
+        ax.set_ylabel("y (non-dim)")
+        ax.set_zlabel("z (non-dim)")
+        ax.set_title("CR3BP Trajectory — Rotating Frame")
+        ax.set_box_aspect((1, 1, 0.6))
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        fig.tight_layout()
+        return fig, ax
+
+    raise ValueError("Method should be either '2D' or '3D'")
 
 
-t, state = export_trajectory(converged_state, T ,)
+if __name__ == "__main__":
+    Method = "3D"
+    x0, z0, vy, T_guess = calc_init_conditions(MU)
 
-print("trajectory: ", state)
+    converged_state, T = differential_corrector(
+        T_guess,
+        x0_guess=x0,
+        z0_guess=z0,
+        vy0_guess=vy,
+        mu=MU,
+        max_newton=1000,
+        tol=1e-12,
+    )
 
-plt.figure(figsize=(8, 6))
-plt.plot(state[:, 0], state[:, 1], lw=0.8, color="steelblue", label="Spacecraft")
-plt.plot(-MU, 0, "bo", markersize=10, label="Earth")  # Earth position
-plt.plot(1 - MU, 0, "go", markersize=6, label="Moon")  # Moon position
-plt.xlabel("x (non-dim)")
-plt.ylabel("y (non-dim)")
-plt.title("CR3BP Trajectory — Rotating Frame")
-plt.legend()
-plt.gca().set_aspect("equal")
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
+    print("Beginning Integration")
 
-# print(f"Converged at: {solution.t[-1]:2f} time | Success: {solution.success}\n")
+    solution = integrator((0, T), converged_state, None, MU)
+    
+    # Extract Monodromy and Floquet
+    final_sol_vector = solution.y[:, -1]
+    STM_flat = final_sol_vector[6:]
+    monodromy = STM_flat.reshape((6, 6))
 
-# print("--- Floquet Multipliers ---")
-# for i, fm in enumerate(floquet_multipliers):
-#     # Formats real and imaginary parts to 4 decimal places
-#     print(f"λ_{i+1}: {fm.real:>9.4f} + {fm.imag:>9.4f}j")
+    print("Extracting Floquet Multipliers . . .")
+    floquet_multipliers, eigenvectors = eig(monodromy)
 
-# print("\n--- Eigenvectors ---")
-# for i, row in enumerate(eigenvectors):
-#     formatted_row = [f"{val.real:>8.4f}+{val.imag:>8.4f}j" for val in row]
-#     print(f"Row {i+1}: [{', '.join(formatted_row)}]")
+    t, state = export_trajectory(converged_state, T)
+
+    initial_state = np.asarray(converged_state, dtype=float)
+    final_state = np.asarray(solution.y[:6, -1], dtype=float)
+
+    C0 = jacobi_constant(initial_state, MU)
+    CT = jacobi_constant(final_state, MU)
+
+    print(np.linalg.det(monodromy))
+    print("================ JACOBI CONSTANT =================")
+    print(f"C(t=0) = {C0:.12f}")
+    print(f"C(t=T) = {CT:.12f}")
+    print(f"Drift = {abs(CT - C0):.3e}")
+    print("======================================")
+    print(floquet_multipliers)
+    print("======================================")
+    print("trajectory: ", state)
+
+    plot_orbit(state, method=Method, mu=MU)
+    plt.show()
