@@ -323,12 +323,12 @@ def richardson_halo_seed(
     scale = c.gamma
     state = np.array(
         [
-            c.x_libration + scale * xbar,
-            scale * ybar,
-            scale * zbar,
-            scale * angular_rate * dx_dtau,
-            scale * angular_rate * dy_dtau,
-            scale * angular_rate * dz_dtau,
+            c.x_libration + scale * xbar, # x
+            scale * ybar, # y
+            scale * zbar,# z
+            scale * angular_rate * dx_dtau, # vx
+            scale * angular_rate * dy_dtau, # vy
+            scale * angular_rate * dz_dtau, # vz
         ]
     )
     period = 2.0 * np.pi / angular_rate
@@ -371,69 +371,69 @@ def _half_period_crossing(state0: Array, mu: float, max_time: float, rtol: float
     return float(sol.t_events[0][0]), final[:6], final[6:].reshape(6, 6)
 
 
-def differential_correct_halo(
-    initial_state: Array,
-    mu: float,
-    period_guess: float | None = None,
-    tol: float = 1e-11,
-    max_iterations: int = 20,
-    rtol: float = 2e-12,
-    atol: float = 2e-14,
-) -> CorrectionResult:
-    """Correct an x-z symmetric 3D halo orbit by single shooting.
+# def differential_correct_halo(
+#     initial_state: Array,
+#     mu: float,
+#     period_guess: float | None = None,
+#     tol: float = 1e-11,
+#     max_iterations: int = 20,
+#     rtol: float = 2e-12,
+#     atol: float = 2e-14,
+# ) -> CorrectionResult:
+#     """Correct an x-z symmetric 3D halo orbit by single shooting.
 
-    The family parameter ``z0`` is held fixed.  Newton updates ``x0`` and
-    ``ydot0`` so that ``xdot(tf/2)=zdot(tf/2)=0`` at the next ``y=0``
-    crossing.  Event-time sensitivity is included explicitly; omitting it is
-    a common source of false convergence in 3D correctors.
-    """
-    _check_mu(mu)
-    state = np.array(initial_state, dtype=float, copy=True)
-    if state.shape != (6,):
-        raise ValueError("initial_state must have shape (6,)")
-    state[[1, 3, 5]] = 0.0
-    max_time = 0.75 * period_guess if period_guess is not None else 10.0
-    residual_norm = np.inf
+#     The family parameter ``z0`` is held fixed.  Newton updates ``x0`` and
+#     ``ydot0`` so that ``xdot(tf/2)=zdot(tf/2)=0`` at the next ``y=0``
+#     crossing.  Event-time sensitivity is included explicitly; omitting it is
+#     a common source of false convergence in 3D correctors.
+#     """
+#     _check_mu(mu)
+#     state = np.array(initial_state, dtype=float, copy=True)
+#     if state.shape != (6,):
+#         raise ValueError("initial_state must have shape (6,)")
+#     state[[1, 3, 5]] = 0.0
+#     max_time = 0.75 * period_guess if period_guess is not None else 10.0
+#     residual_norm = np.inf
 
-    for iteration in range(max_iterations + 1):
-        half_period, final, phi = _half_period_crossing(state, mu, max_time, rtol, atol)
-        residual = final[[3, 5]]
-        residual_norm = float(np.linalg.norm(residual, ord=np.inf))
-        if residual_norm <= tol:
-            return CorrectionResult(state.copy(), 2.0 * half_period, True, iteration, residual_norm)
-        if iteration == max_iterations:
-            break
+#     for iteration in range(max_iterations + 1):
+#         half_period, final, phi = _half_period_crossing(state, mu, max_time, rtol, atol)
+#         residual = final[[3, 5]]
+#         residual_norm = float(np.linalg.norm(residual, ord=np.inf))
+#         if residual_norm <= tol:
+#             return CorrectionResult(state.copy(), 2.0 * half_period, True, iteration, residual_norm)
+#         if iteration == max_iterations:
+#             break
 
-        f_final = cr3bp_rhs(half_period, final, mu)
-        if abs(f_final[1]) < 1e-14:
-            raise RuntimeError("grazing y=0 crossing makes the correction Jacobian singular")
-        rows = np.array([3, 5])
-        cols = np.array([0, 4])
-        correction_matrix = phi[np.ix_(rows, cols)] - np.outer(
-            f_final[rows] / f_final[1], phi[1, cols]
-        )
-        step = np.linalg.solve(correction_matrix, -residual)
+#         f_final = cr3bp_rhs(half_period, final, mu)
+#         if abs(f_final[1]) < 1e-14:
+#             raise RuntimeError("grazing y=0 crossing makes the correction Jacobian singular")
+#         rows = np.array([3, 5])
+#         cols = np.array([0, 4])
+#         correction_matrix = phi[np.ix_(rows, cols)] - np.outer(
+#             f_final[rows] / f_final[1], phi[1, cols]
+#         )
+#         step = np.linalg.solve(correction_matrix, -residual)
 
-        # Backtracking protects against a large Newton jump from a rough seed.
-        step_scale = 1.0
-        accepted = False
-        for _ in range(8):
-            trial = state.copy()
-            trial[cols] += step_scale * step
-            try:
-                _, trial_final, _ = _half_period_crossing(trial, mu, max_time, rtol, atol)
-                trial_norm = np.linalg.norm(trial_final[rows], ord=np.inf)
-            except RuntimeError:
-                trial_norm = np.inf
-            if trial_norm < residual_norm:
-                state = trial
-                accepted = True
-                break
-            step_scale *= 0.5
-        if not accepted:
-            state[cols] += 0.125 * step
+#         # Backtracking protects against a large Newton jump from a rough seed.
+#         step_scale = 1.0
+#         accepted = False
+#         for _ in range(8):
+#             trial = state.copy()
+#             trial[cols] += step_scale * step
+#             try:
+#                 _, trial_final, _ = _half_period_crossing(trial, mu, max_time, rtol, atol)
+#                 trial_norm = np.linalg.norm(trial_final[rows], ord=np.inf)
+#             except RuntimeError:
+#                 trial_norm = np.inf
+#             if trial_norm < residual_norm:
+#                 state = trial
+#                 accepted = True
+#                 break
+#             step_scale *= 0.5
+#         if not accepted:
+#             state[cols] += 0.125 * step
 
-    return CorrectionResult(state, 2.0 * half_period, False, max_iterations, residual_norm)
+#     return CorrectionResult(state, 2.0 * half_period, False, max_iterations, residual_norm)
 
 
 # ---------------------------------------------------------------------------

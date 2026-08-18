@@ -34,7 +34,6 @@ if isinstance(X_l_point, tuple):
     y_cord = X_l_point[1]
     X_l_point = x_cord
 
-
 r1 = lambda x, y, z, mu: ((x + mu) ** 2 + y**2 + z**2) ** 0.5
 r2 = lambda x, y, z, mu: ((x - 1 + mu) ** 2 + y**2 + z**2) ** 0.5
 
@@ -149,7 +148,7 @@ def ode_function(t, state42, mu):
 
 
 def integrator(
-    timespan, state6, events, mu, dense_output=False, rtol=1e-12, atol=1e-12
+    timespan, state6, events= None, mu = MU, dense_output=False, rtol=1e-12, atol=1e-12
 ):
     full_state = np.concatenate([state6, np.eye(6).flatten()])
     solution = solve_ivp(
@@ -173,7 +172,7 @@ def differential_corrector(
     vy0_guess, 
     mu,
     method="3D",
-    max_newton=50,
+    max_newton=100,
     max_expand=6,
     tol=1e-12,
 ):
@@ -192,7 +191,7 @@ def differential_corrector(
 
     t_span_bound = 1.5 * T  # starting estimate, from linear period
 
-    alpha = 0.3
+    alpha = 1.0
 
     for newton_iter in range(max_newton):
         state6 = [x0_guess, 0, z0_guess, 0, vy0_guess, 0]
@@ -286,8 +285,29 @@ def differential_corrector(
             D = partial_G - (1 / vy_f) * np.outer(accel_matrix, dth_dp)
 
             delta_p = np.linalg.solve(D, G)
-            x0_guess -= alpha * delta_p[0]
-            vy0_guess -= alpha * delta_p[1]
+            current_norm = np.linalg.norm(G)
+            
+            # backtracking: halve the step until it actually reduces the residual
+            step_alpha = alpha
+            for _ in range(10):
+                trial_x0 = x0_guess - step_alpha * delta_p[0]
+                trial_vy0 = vy0_guess - step_alpha * delta_p[1]
+                trial_state6 = [trial_x0, 0, z0_guess, 0, trial_vy0, 0]
+                trial_sol = integrator((0, t_span_bound), trial_state6, event_function, mu,
+                                    dense_output=True, rtol=tol, atol=tol)
+                t_ev = trial_sol.t_events[0]
+                t_ev = t_ev[t_ev > 1e-6]
+                if len(t_ev) == 0:
+                    step_alpha *= 0.5
+                    continue
+                trial_sol_at_t = trial_sol.sol(t_ev[0])
+                trial_G = np.array([trial_sol_at_t[3], trial_sol_at_t[5]])
+                if np.linalg.norm(trial_G) < current_norm:
+                    break
+                step_alpha *= 0.5
+
+            x0_guess, vy0_guess = trial_x0, trial_vy0
+            print(f" vy_guess: {vy0_guess}; x0_guess: {x0_guess}; norm(G): {np.linalg.norm(G)}") # debug
 
         else:
             raise ValueError("Method Error")
@@ -304,7 +324,7 @@ def differential_corrector(
             )
 
 
-def calc_init_conditions(mu, method="3D"):
+def calc_init_conditions(mu, method="3D", az_km=2000.0):
 
     y = y_cord if Xl_isTuple else 0
 
@@ -340,7 +360,7 @@ def calc_init_conditions(mu, method="3D"):
         return x0, vy0_guess, T_linear
     elif method == "3D":
         lpoint = 1  # 1, 2, or 3
-        Az_km = 8000.0  # desired vertical amplitude
+        Az_km = az_km  # desired vertical amplitude
         primary_dist_km = 384400.0  # Earth-Moon separation
         (
             x0,
@@ -371,6 +391,44 @@ def export_trajectory(state6, T, N=1000, filepath="trajectory.npz"):
     state_array = np.array([solution.sol(t)[:6] for t in t_array])
     np.savez(filepath, t=t_array, state=state_array, mu=MU, T=T)
     return t_array, state_array
+
+
+def run_az_continuation_test(mu=MU, method="3D", az_values=None, max_newton=1000, tol=1e-12):
+    """Sweep Az_km with natural-parameter continuation using the previous converged state as the next seed."""
+    if az_values is None:
+        az_values = np.linspace(5000.0, 30000.0, 26)
+
+    prev_state = None
+    results = []
+
+    print("Beginning differential corrector robustness test. . .")
+    for az_km in az_values:
+        x_guess, z_guess, vy_guess, T_guess = calc_init_conditions(
+            mu, method=method, az_km=float(az_km)
+        )
+
+        if prev_state is not None:
+            x_guess = float(prev_state[0])
+            vy_guess = float(prev_state[4])
+
+        converged_state, T = differential_corrector(
+            T_guess,
+            x0_guess=x_guess,
+            z0_guess=z_guess,
+            vy0_guess=vy_guess,
+            mu=mu,
+            method=method,
+            max_newton=max_newton,
+            tol=tol,
+        )
+
+        prev_state = converged_state
+        results.append((float(az_km), np.array(converged_state, dtype=float), float(T)))
+        print(
+            f"[continuation] Az_km={az_km:.1f} -> T={T:.6f}, state=[x={converged_state[0]:.8f}, z={converged_state[2]:.8f}, vy={converged_state[4]:.8f}]"
+        )
+
+    return results
 
 
 def plot_orbit(state, method="3D", mu=None):
@@ -428,7 +486,9 @@ def plot_orbit(state, method="3D", mu=None):
 
 if __name__ == "__main__":
     Method = "3D"
-    x0, z0, vy, T_guess = calc_init_conditions(MU)
+    # run_az_continuation_test(mu=MU, method=Method)
+
+    x0, z0, vy, T_guess = calc_init_conditions(MU, method=Method)
 
     converged_state, T = differential_corrector(
         T_guess,
